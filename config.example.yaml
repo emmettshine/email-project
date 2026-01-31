@@ -1,0 +1,57 @@
+# Email Triage System Configuration
+# Copy this file to config.yaml and fill in your account details
+
+accounts:
+  - name: "Work"
+    email: "you@company.com"
+    imap_server: "imap.company.com"
+    imap_port: 993
+    username: "you@company.com"
+    # Password can be set here or via environment variable WORK_EMAIL_PASSWORD
+    password: ""
+
+  - name: "Personal"
+    email: "you@gmail.com"
+    imap_server: "imap.gmail.com"
+    imap_port: 993
+    username: "you@gmail.com"
+    # For Gmail, use an App Password: https://myaccount.google.com/apppasswords
+    password: ""
+
+  - name: "Side Project"
+    email: "you@project.com"
+    imap_server: "imap.project.com"
+    imap_port: 993
+    username: "you@project.com"
+    password: ""
+
+  - name: "Newsletter"
+    email: "newsletters@yourdomain.com"
+    imap_server: "imap.yourdomain.com"
+    imap_port: 993
+    username: "newsletters@yourdomain.com"
+    password: ""
+
+# Triage rules - emails matching these rules get categorized
+triage_rules:
+  urgent:
+    - from_contains: ["boss@", "ceo@", "urgent@"]
+    - subject_contains: ["URGENT", "ASAP", "emergency"]
+
+  important:
+    - from_contains: ["client", "customer"]
+    - subject_contains: ["invoice", "payment", "contract"]
+
+  newsletters:
+    - from_contains: ["newsletter", "noreply", "marketing"]
+    - subject_contains: ["unsubscribe", "weekly digest"]
+
+  low_priority:
+    - from_contains: ["notifications@", "alerts@"]
+    - subject_contains: ["automated", "notification"]
+
+# Display settings
+display:
+  max_emails_per_account: 50
+  show_preview_length: 100
+  date_format: "%Y-%m-%d %H:%M"

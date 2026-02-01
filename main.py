@@ -14,8 +14,15 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.prompt import Prompt, Confirm
 
-from email_client import EmailClient, Email
+from email_client import EmailClient, Email, create_email_client
 from triage import TriageEngine, Priority, TriageResult
+from gmail_oauth import (
+    authenticate_account,
+    check_account_authenticated,
+    remove_account_token,
+    OAUTH_CREDENTIALS_FILE,
+    CREDENTIALS_DIR,
+)
 
 
 console = Console()
@@ -127,7 +134,7 @@ def fetch_all_emails(config: dict, unread_only: bool = False) -> list[Email]:
 
     for account_config in config.get("accounts", []):
         console.print(f"[dim]Fetching from {account_config['name']}...[/dim]")
-        client = EmailClient(account_config)
+        client = create_email_client(account_config)
 
         with client:
             emails = client.fetch_emails(limit=limit, unread_only=unread_only)
@@ -228,15 +235,99 @@ def cmd_test(args, config: dict):
 
     for account_config in config.get("accounts", []):
         name = account_config["name"]
-        console.print(f"Testing {name}... ", end="")
+        auth_type = account_config.get("auth_type", "imap")
+        console.print(f"Testing {name} ({auth_type})... ", end="")
 
-        client = EmailClient(account_config)
+        client = create_email_client(account_config)
         if client.connect():
             folders = client.get_folder_list()
             client.disconnect()
             console.print(f"[green]OK[/green] ({len(folders)} folders)")
         else:
             console.print("[red]FAILED[/red]")
+
+
+def cmd_auth(args, config: dict):
+    """Set up OAuth authentication for Gmail accounts."""
+    console.print("\n[bold blue]Gmail OAuth Authentication Setup[/bold blue]\n")
+
+    # Check if credentials file exists
+    if not OAUTH_CREDENTIALS_FILE.exists():
+        console.print("[red]Google OAuth credentials file not found![/red]\n")
+        console.print("Please copy your OAuth credentials JSON file to:")
+        console.print(f"  [cyan]{OAUTH_CREDENTIALS_FILE}[/cyan]\n")
+        console.print("To get credentials:")
+        console.print("1. Go to Google Cloud Console (console.cloud.google.com)")
+        console.print("2. Create a project and enable Gmail API")
+        console.print("3. Create OAuth 2.0 credentials (Desktop app)")
+        console.print("4. Download the JSON file")
+        return
+
+    # Get OAuth accounts
+    oauth_accounts = [
+        acc for acc in config.get("accounts", [])
+        if acc.get("auth_type") == "oauth"
+    ]
+
+    if not oauth_accounts:
+        console.print("[yellow]No OAuth accounts configured.[/yellow]")
+        console.print("Add accounts with 'auth_type: oauth' to your config.yaml")
+        return
+
+    # Show account status
+    table = Table(title="Gmail Accounts", show_header=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Email")
+    table.add_column("Status")
+
+    for account in oauth_accounts:
+        is_auth = check_account_authenticated(account["name"])
+        status = "[green]Authenticated[/green]" if is_auth else "[yellow]Not authenticated[/yellow]"
+        table.add_row(account["name"], account["email"], status)
+
+    console.print(table)
+    console.print()
+
+    if args.status:
+        return
+
+    if args.logout:
+        # Remove all tokens
+        for account in oauth_accounts:
+            if remove_account_token(account["name"]):
+                console.print(f"[green]Removed credentials for {account['name']}[/green]")
+        return
+
+    # Authenticate accounts
+    if args.account:
+        # Authenticate specific account
+        account = next((a for a in oauth_accounts if a["name"] == args.account), None)
+        if not account:
+            console.print(f"[red]Account '{args.account}' not found or not an OAuth account[/red]")
+            return
+        accounts_to_auth = [account]
+    else:
+        # Authenticate all unauthenticated accounts
+        accounts_to_auth = [
+            a for a in oauth_accounts
+            if not check_account_authenticated(a["name"])
+        ]
+
+    if not accounts_to_auth:
+        console.print("[green]All accounts are already authenticated![/green]")
+        return
+
+    console.print(f"[bold]Authenticating {len(accounts_to_auth)} account(s)...[/bold]\n")
+
+    for account in accounts_to_auth:
+        console.print(f"\n[bold]Account: {account['name']} ({account['email']})[/bold]")
+        creds = authenticate_account(account["name"], account["email"])
+        if creds:
+            console.print(f"[green]Successfully authenticated {account['name']}[/green]")
+        else:
+            console.print(f"[red]Failed to authenticate {account['name']}[/red]")
+
+    console.print("\n[bold green]Authentication setup complete![/bold green]")
 
 
 def main():
@@ -265,6 +356,12 @@ def main():
     # Test command
     test_parser = subparsers.add_parser("test", help="Test connection to all accounts")
 
+    # Auth command
+    auth_parser = subparsers.add_parser("auth", help="Set up Gmail OAuth authentication")
+    auth_parser.add_argument("--status", "-s", action="store_true", help="Show authentication status only")
+    auth_parser.add_argument("--account", "-a", type=str, help="Authenticate specific account by name")
+    auth_parser.add_argument("--logout", action="store_true", help="Remove stored credentials for all accounts")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -278,6 +375,7 @@ def main():
         "interactive": cmd_interactive,
         "accounts": cmd_accounts,
         "test": cmd_test,
+        "auth": cmd_auth,
     }
 
     if args.command in commands:

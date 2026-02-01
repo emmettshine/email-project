@@ -1,5 +1,7 @@
 """
 Email client module for connecting to IMAP servers and fetching emails.
+
+Supports both IMAP authentication and Gmail OAuth2.
 """
 
 import imaplib
@@ -8,7 +10,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 import os
 
 
@@ -216,3 +218,22 @@ class EmailClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.disconnect()
+
+
+def create_email_client(account_config: dict) -> Union["EmailClient", "GmailClient"]:
+    """
+    Factory function to create the appropriate email client based on auth_type.
+
+    Args:
+        account_config: Account configuration dictionary
+
+    Returns:
+        EmailClient for IMAP auth or GmailClient for OAuth
+    """
+    auth_type = account_config.get("auth_type", "imap")
+
+    if auth_type == "oauth":
+        from gmail_oauth import GmailClient
+        return GmailClient(account_config)
+    else:
+        return EmailClient(account_config)

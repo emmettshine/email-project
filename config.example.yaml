@@ -32,6 +32,21 @@ accounts:
     username: "newsletters@yourdomain.com"
     password: ""
 
+  # OAuth account examples - use auth_type: "oauth" for OAuth authentication
+  - name: "Gmail OAuth"
+    email: "you@gmail.com"
+    auth_type: "oauth"
+    oauth_provider: "gmail"  # Automatically uses imap.gmail.com
+    # Access token can be set here or via environment variable GMAIL_OAUTH_ACCESS_TOKEN
+    access_token: ""
+
+  - name: "Outlook OAuth"
+    email: "you@outlook.com"
+    auth_type: "oauth"
+    oauth_provider: "outlook"  # Automatically uses outlook.office365.com
+    # Access token can be set here or via environment variable OUTLOOK_OAUTH_ACCESS_TOKEN
+    access_token: ""
+
 # Triage rules - emails matching these rules get categorized
 triage_rules:
   urgent:

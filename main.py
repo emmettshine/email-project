@@ -211,12 +211,21 @@ def cmd_accounts(args, config: dict):
     table.add_column("Name", style="cyan")
     table.add_column("Email")
     table.add_column("Server")
+    table.add_column("Auth Type")
 
     for account in config.get("accounts", []):
+        auth_type = account.get("auth_type", "password")
+        # Get server - may be explicit or inferred from OAuth provider
+        server = account.get("imap_server", "")
+        if not server and auth_type == "oauth":
+            provider = account.get("oauth_provider", "")
+            server = f"[{provider}]" if provider else "[auto-detect]"
+
         table.add_row(
             account["name"],
             account["email"],
-            account["imap_server"]
+            server,
+            auth_type
         )
 
     console.print(table)

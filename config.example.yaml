@@ -55,3 +55,13 @@ display:
   max_emails_per_account: 50
   show_preview_length: 100
   date_format: "%Y-%m-%d %H:%M"
+
+# Slack integration for digest command
+# Get a webhook URL from: https://api.slack.com/messaging/webhooks
+slack:
+  webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  # Optional: override the channel (webhook default is used if not set)
+  # channel: "#email-digest"
+  # Optional: customize bot appearance
+  username: "Email Digest Bot"
+  icon_emoji: ":email:"

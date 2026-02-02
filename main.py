@@ -16,6 +16,7 @@ from rich.prompt import Prompt, Confirm
 
 from email_client import EmailClient, Email
 from triage import TriageEngine, Priority, TriageResult
+from slack_client import SlackClient
 
 
 console = Console()
@@ -239,6 +240,51 @@ def cmd_test(args, config: dict):
             console.print("[red]FAILED[/red]")
 
 
+def cmd_digest(args, config: dict):
+    """Post email digest summary to Slack."""
+    console.print("\n[bold blue]Email Digest[/bold blue]\n")
+
+    # Check Slack configuration
+    slack_config = config.get("slack", {})
+    slack_client = SlackClient(slack_config)
+
+    if not slack_client.is_configured():
+        console.print("[red]Error: Slack webhook URL not configured.[/red]")
+        console.print("Add a 'slack' section with 'webhook_url' to your config.yaml")
+        sys.exit(1)
+
+    # Fetch emails
+    emails = fetch_all_emails(config, unread_only=args.unread)
+
+    if not emails:
+        console.print("[yellow]No emails found.[/yellow]")
+        return
+
+    # Run triage
+    engine = TriageEngine()
+    if "triage_rules" in config:
+        engine.load_rules_from_config(config["triage_rules"])
+
+    results = engine.triage_batch(emails)
+    summary = engine.get_summary(results)
+
+    # Display local summary first
+    if not args.quiet:
+        console.print()
+        display_summary(summary, title="Digest Summary")
+        console.print()
+
+    # Post to Slack
+    console.print("[dim]Posting digest to Slack...[/dim]")
+    success, error = slack_client.post_digest(results, summary)
+
+    if success:
+        console.print("[green]Digest posted to Slack successfully![/green]")
+    else:
+        console.print(f"[red]Failed to post digest: {error}[/red]")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Email Triage System - Manage multiple email accounts efficiently"
@@ -265,6 +311,11 @@ def main():
     # Test command
     test_parser = subparsers.add_parser("test", help="Test connection to all accounts")
 
+    # Digest command
+    digest_parser = subparsers.add_parser("digest", help="Post email digest to Slack")
+    digest_parser.add_argument("--unread", "-u", action="store_true", help="Only include unread emails")
+    digest_parser.add_argument("--quiet", "-q", action="store_true", help="Suppress local output, only post to Slack")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -278,6 +329,7 @@ def main():
         "interactive": cmd_interactive,
         "accounts": cmd_accounts,
         "test": cmd_test,
+        "digest": cmd_digest,
     }
 
     if args.command in commands:

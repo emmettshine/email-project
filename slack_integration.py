@@ -131,17 +131,22 @@ class SlackClient:
         return truncated + '...'
 
     def _generate_gmail_link(self, email) -> str:
-        """Generate a Gmail link for the email using subject search."""
-        # Use Gmail search URL - more reliable than thread IDs
-        # Format: https://mail.google.com/mail/u/0/#search/subject:ENCODED_SUBJECT
+        """Generate a Gmail link for the email using subject search + message ID."""
+        # Format: https://mail.google.com/mail/u/{account_index}/#search/subject:{subject}/{message_id}
         from urllib.parse import quote
 
-        # URL encode the subject for the search query
-        subject = email.subject
-        # Wrap in quotes for exact match and encode
-        encoded_subject = quote(f'"{subject}"', safe='')
+        # Get account index (u/0, u/1, etc.)
+        account_index = getattr(email, 'gmail_account_index', 0)
 
-        return f"https://mail.google.com/mail/u/0/#search/subject:{encoded_subject}"
+        # URL encode the subject - replace spaces with +
+        subject = email.subject.replace(' ', '+')
+        # Quote special characters but keep + for spaces
+        encoded_subject = quote(subject, safe='+')
+
+        # Get the message ID
+        message_id = getattr(email, 'message_id', '') or email.uid
+
+        return f"https://mail.google.com/mail/u/{account_index}/#search/subject:{encoded_subject}/{message_id}"
 
     def _build_digest_blocks(
         self,

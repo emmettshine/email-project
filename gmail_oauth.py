@@ -126,6 +126,7 @@ class GmailClient:
     def __init__(self, account_config: dict):
         self.name = account_config["name"]
         self.email_address = account_config["email"]
+        self.gmail_account_index = account_config.get("gmail_account_index", 0)
         self.service = None
         self._creds = None
 
@@ -217,8 +218,9 @@ class GmailClient:
                     # Get preview
                     preview = msg.get("snippet", "")
 
-                    # Use threadId as the UID
+                    # Use threadId as the UID, message id for URLs
                     thread_id = msg.get("threadId", msg_ref["id"])
+                    message_id = msg_ref["id"]  # Gmail message ID for URLs
 
                     emails.append(Email(
                         uid=thread_id,
@@ -228,7 +230,9 @@ class GmailClient:
                         date=date,
                         preview=preview,
                         is_read=is_read,
-                        folder=folder
+                        folder=folder,
+                        gmail_account_index=self.gmail_account_index,
+                        message_id=message_id
                     ))
                 except HttpError as e:
                     print(f"Error fetching message: {e}")

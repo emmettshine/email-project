@@ -52,6 +52,8 @@ class Email:
     preview: str
     is_read: bool
     folder: str
+    gmail_account_index: int = 0  # Position in Gmail (u/0, u/1, etc.)
+    message_id: str = ""  # Gmail message ID for URLs
 
     def __str__(self) -> str:
         status = " " if self.is_read else "*"
@@ -68,6 +70,7 @@ class EmailClient:
         self.name = account_config["name"]
         self.email_address = account_config["email"]
         self.username = account_config.get("username", account_config["email"])
+        self.gmail_account_index = account_config.get("gmail_account_index", 0)
 
         # Determine authentication type
         self.auth_type = account_config.get("auth_type", "password").lower()
@@ -222,24 +225,30 @@ class EmailClient:
                 try:
                     # Fetch email data including Gmail thread ID if available
                     # X-GM-THRID is Gmail's thread identifier (better for web URLs)
-                    _, msg_data = self.connection.fetch(num, "(RFC822 FLAGS X-GM-THRID)")
+                    # Fetch email data including Gmail thread ID and message ID
+                    _, msg_data = self.connection.fetch(num, "(RFC822 FLAGS X-GM-THRID X-GM-MSGID)")
                     if not msg_data or not msg_data[0]:
                         continue
 
                     raw_email = msg_data[0][1]
                     msg = email.message_from_bytes(raw_email)
 
-                    # Check if read and extract Gmail thread ID
+                    # Check if read and extract Gmail IDs
                     flags_data = msg_data[0][0].decode() if isinstance(msg_data[0][0], bytes) else str(msg_data[0][0])
                     is_read = "\\Seen" in flags_data
 
-                    # Extract Gmail thread ID (X-GM-THRID) for proper Gmail web links
-                    gmail_thread_id = None
+                    # Extract Gmail thread ID and message ID
                     import re as re_module
+                    gmail_thread_id = None
+                    gmail_msg_id = None
+
                     thrid_match = re_module.search(r'X-GM-THRID\s+(\d+)', flags_data)
                     if thrid_match:
-                        # Convert to hex for Gmail URL format
                         gmail_thread_id = format(int(thrid_match.group(1)), 'x')
+
+                    msgid_match = re_module.search(r'X-GM-MSGID\s+(\d+)', flags_data)
+                    if msgid_match:
+                        gmail_msg_id = format(int(msgid_match.group(1)), 'x')
 
                     # Use Gmail thread ID if available, otherwise fall back to sequence number
                     message_uid = gmail_thread_id if gmail_thread_id else (num.decode() if isinstance(num, bytes) else str(num))
@@ -268,7 +277,9 @@ class EmailClient:
                         date=date,
                         preview=preview,
                         is_read=is_read,
-                        folder=folder
+                        folder=folder,
+                        gmail_account_index=self.gmail_account_index,
+                        message_id=gmail_msg_id or message_uid
                     ))
                 except Exception as e:
                     print(f"Error parsing email: {e}")

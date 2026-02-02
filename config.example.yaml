@@ -17,9 +17,13 @@
 
 accounts:
   # Example: Gmail account using OAuth (recommended)
+  # gmail_account_index: Position in Gmail's account switcher (u/0, u/1, etc.)
+  #   - Your primary Gmail account is usually u/0
+  #   - Additional accounts are u/1, u/2, etc. based on sign-in order
   - name: "Personal"
     email: "you@gmail.com"
     auth_type: oauth  # Uses Gmail API with OAuth2
+    gmail_account_index: 0  # u/0 - primary Gmail account
 
   # Example: Gmail account using IMAP with App Password
   - name: "Work Gmail"

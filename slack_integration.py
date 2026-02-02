@@ -2,6 +2,7 @@
 Slack integration for posting email digests.
 """
 
+import html
 import os
 import re
 from datetime import datetime
@@ -208,8 +209,9 @@ class SlackClient:
 
                     sender_name = self._extract_sender_name(email.sender)
                     sender_domain = self._extract_sender_domain(email.sender)
-                    subject = email.subject
-                    summary_text = self._generate_summary(email.preview)
+                    # Decode HTML entities (e.g., &#39; -> ', &amp; -> &)
+                    subject = html.unescape(email.subject)
+                    summary_text = html.unescape(self._generate_summary(email.preview))
                     gmail_link = self._generate_gmail_link(email)
 
                     # Build the email block with clear formatting

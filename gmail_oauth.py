@@ -217,8 +217,11 @@ class GmailClient:
                     # Get preview
                     preview = msg.get("snippet", "")
 
+                    # Use threadId for Gmail web URLs (works better than message ID)
+                    thread_id = msg.get("threadId", msg_ref["id"])
+
                     emails.append(Email(
-                        uid=msg_ref["id"],
+                        uid=thread_id,
                         account_name=self.name,
                         sender=self._decode_header(headers, "From"),
                         subject=self._decode_header(headers, "Subject") or "(No Subject)",

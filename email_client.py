@@ -6,6 +6,7 @@ Supports both IMAP authentication and Gmail OAuth2.
 
 import imaplib
 import email
+import email.message
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from dataclasses import dataclass

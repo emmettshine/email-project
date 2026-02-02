@@ -74,13 +74,20 @@ def authenticate_account(account_name: str, email_address: str) -> Optional[Cred
 
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(OAUTH_CREDENTIALS_FILE),
-                SCOPES
+                SCOPES,
+                redirect_uri="urn:ietf:wg:oauth:2.0:oob"
             )
             print(f"\nAuthenticating {account_name} ({email_address})...")
-            print("A browser window will open for you to sign in.")
             print(f"Make sure to sign in with: {email_address}\n")
 
-            creds = flow.run_local_server(port=0)
+            # Generate authorization URL
+            auth_url, _ = flow.authorization_url(prompt="consent")
+            print("Please visit this URL in your browser:")
+            print(f"\n{auth_url}\n")
+            print("After authorizing, you'll see an authorization code.")
+            code = input("Enter the authorization code here: ").strip()
+            flow.fetch_token(code=code)
+            creds = flow.credentials
 
         # Save the token for future use
         with open(token_path, "wb") as token:

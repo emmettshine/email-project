@@ -1,6 +1,11 @@
 # Config with credentials
 config.yaml
 
+# OAuth credentials and tokens
+credentials/
+*.json
+token_*.pickle
+
 # Python
 __pycache__/
 *.py[cod]

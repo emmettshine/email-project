@@ -55,3 +55,17 @@ display:
   max_emails_per_account: 50
   show_preview_length: 100
   date_format: "%Y-%m-%d %H:%M"
+
+# Slack integration settings
+# To get a Bot Token, create a Slack app at https://api.slack.com/apps
+# Required scopes: chat:write, channels:read, groups:read
+slack:
+  # Bot User OAuth Token (starts with xoxb-)
+  # Can also be set via SLACK_BOT_TOKEN environment variable
+  bot_token: ""
+  # Default channel for posting digests (include # prefix)
+  channel: "#email-digests"
+  # Include email preview text in digest
+  include_preview: false
+  # Maximum emails to show per priority level
+  max_emails_per_priority: 5

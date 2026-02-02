@@ -210,13 +210,24 @@ def cmd_accounts(args, config: dict):
     table = Table(title="Configured Email Accounts", show_header=True)
     table.add_column("Name", style="cyan")
     table.add_column("Email")
+    table.add_column("Type")
     table.add_column("Server")
 
     for account in config.get("accounts", []):
+        auth_type = account.get("auth_type", "imap").lower()
+        if auth_type == "oauth":
+            provider = account.get("provider", "").lower()
+            server = account.get("imap_server", f"OAuth ({provider})" if provider else "OAuth")
+            type_display = "OAuth"
+        else:
+            server = account.get("imap_server", "N/A")
+            type_display = "IMAP"
+
         table.add_row(
             account["name"],
             account["email"],
-            account["imap_server"]
+            type_display,
+            server
         )
 
     console.print(table)

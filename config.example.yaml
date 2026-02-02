@@ -2,27 +2,40 @@
 # Copy this file to config.yaml and fill in your account details
 
 accounts:
+  # Traditional IMAP account example
   - name: "Work"
     email: "you@company.com"
+    auth_type: "imap"  # Optional, defaults to "imap"
     imap_server: "imap.company.com"
     imap_port: 993
     username: "you@company.com"
     # Password can be set here or via environment variable WORK_EMAIL_PASSWORD
     password: ""
 
+  # OAuth account example (Gmail)
+  # For OAuth, you need to obtain an access token through Google OAuth flow
   - name: "Personal"
+    email: "you@gmail.com"
+    auth_type: "oauth"
+    provider: "gmail"  # Automatically uses imap.gmail.com
+    # OAuth token can be set here or via environment variable PERSONAL_OAUTH_TOKEN
+    oauth_token: ""
+
+  # OAuth account example (Microsoft/Outlook)
+  - name: "Microsoft"
+    email: "you@outlook.com"
+    auth_type: "oauth"
+    provider: "microsoft"  # Automatically uses outlook.office365.com
+    # OAuth token can be set here or via environment variable MICROSOFT_OAUTH_TOKEN
+    oauth_token: ""
+
+  # Traditional IMAP account with App Password (alternative for Gmail)
+  - name: "Side Project"
     email: "you@gmail.com"
     imap_server: "imap.gmail.com"
     imap_port: 993
     username: "you@gmail.com"
-    # For Gmail, use an App Password: https://myaccount.google.com/apppasswords
-    password: ""
-
-  - name: "Side Project"
-    email: "you@project.com"
-    imap_server: "imap.project.com"
-    imap_port: 993
-    username: "you@project.com"
+    # For Gmail with IMAP, use an App Password: https://myaccount.google.com/apppasswords
     password: ""
 
   - name: "Newsletter"

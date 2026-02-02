@@ -1,15 +1,42 @@
 """
 Email client module for connecting to IMAP servers and fetching emails.
+Supports both traditional IMAP authentication and OAuth2.
 """
 
 import imaplib
 import email
+import base64
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 import os
+
+
+# Well-known IMAP servers for OAuth providers
+OAUTH_PROVIDERS = {
+    "gmail": {
+        "imap_server": "imap.gmail.com",
+        "imap_port": 993,
+    },
+    "google": {
+        "imap_server": "imap.gmail.com",
+        "imap_port": 993,
+    },
+    "microsoft": {
+        "imap_server": "outlook.office365.com",
+        "imap_port": 993,
+    },
+    "outlook": {
+        "imap_server": "outlook.office365.com",
+        "imap_port": 993,
+    },
+    "office365": {
+        "imap_server": "outlook.office365.com",
+        "imap_port": 993,
+    },
+}
 
 
 @dataclass
@@ -30,28 +57,82 @@ class Email:
 
 
 class EmailClient:
-    """IMAP email client for fetching and managing emails."""
+    """IMAP email client for fetching and managing emails.
+
+    Supports both traditional IMAP authentication and OAuth2 (XOAUTH2).
+    """
 
     def __init__(self, account_config: dict):
         self.name = account_config["name"]
         self.email_address = account_config["email"]
-        self.server = account_config["imap_server"]
-        self.port = account_config.get("imap_port", 993)
-        self.username = account_config["username"]
 
-        # Get password from config or environment variable
-        self.password = account_config.get("password", "")
-        if not self.password:
-            env_var = f"{self.name.upper().replace(' ', '_')}_EMAIL_PASSWORD"
-            self.password = os.environ.get(env_var, "")
+        # Determine authentication type
+        self.auth_type = account_config.get("auth_type", "imap").lower()
+        self.is_oauth = self.auth_type == "oauth"
+
+        if self.is_oauth:
+            # OAuth account - use well-known provider settings
+            provider = account_config.get("provider", "").lower()
+            if provider in OAUTH_PROVIDERS:
+                provider_config = OAUTH_PROVIDERS[provider]
+                self.server = account_config.get("imap_server", provider_config["imap_server"])
+                self.port = account_config.get("imap_port", provider_config["imap_port"])
+            else:
+                # Provider not recognized, require explicit server config
+                self.server = account_config.get("imap_server", "")
+                self.port = account_config.get("imap_port", 993)
+                if not self.server:
+                    raise ValueError(
+                        f"OAuth account '{self.name}' requires either a known provider "
+                        f"(gmail, microsoft, outlook) or explicit imap_server configuration"
+                    )
+
+            self.username = account_config.get("username", self.email_address)
+
+            # Get OAuth token from config or environment variable
+            self.oauth_token = account_config.get("oauth_token", "")
+            if not self.oauth_token:
+                env_var = f"{self.name.upper().replace(' ', '_')}_OAUTH_TOKEN"
+                self.oauth_token = os.environ.get(env_var, "")
+
+            self.password = ""  # Not used for OAuth
+        else:
+            # Traditional IMAP account
+            self.server = account_config["imap_server"]
+            self.port = account_config.get("imap_port", 993)
+            self.username = account_config["username"]
+
+            # Get password from config or environment variable
+            self.password = account_config.get("password", "")
+            if not self.password:
+                env_var = f"{self.name.upper().replace(' ', '_')}_EMAIL_PASSWORD"
+                self.password = os.environ.get(env_var, "")
+
+            self.oauth_token = ""  # Not used for IMAP
 
         self.connection: Optional[imaplib.IMAP4_SSL] = None
+
+    def _generate_oauth2_string(self, username: str, access_token: str) -> str:
+        """Generate the XOAUTH2 authentication string."""
+        auth_string = f"user={username}\x01auth=Bearer {access_token}\x01\x01"
+        return base64.b64encode(auth_string.encode()).decode()
 
     def connect(self) -> bool:
         """Connect to the IMAP server."""
         try:
             self.connection = imaplib.IMAP4_SSL(self.server, self.port)
-            self.connection.login(self.username, self.password)
+
+            if self.is_oauth:
+                # Use XOAUTH2 authentication
+                if not self.oauth_token:
+                    print(f"No OAuth token configured for {self.name}")
+                    return False
+                auth_string = self._generate_oauth2_string(self.username, self.oauth_token)
+                self.connection.authenticate("XOAUTH2", lambda x: auth_string.encode())
+            else:
+                # Use traditional login
+                self.connection.login(self.username, self.password)
+
             return True
         except imaplib.IMAP4.error as e:
             print(f"Failed to connect to {self.name}: {e}")

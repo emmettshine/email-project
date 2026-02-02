@@ -155,8 +155,8 @@ class GmailClient:
                 return header["value"]
         return ""
 
-    def _get_body_preview(self, payload: dict, length: int = 100) -> str:
-        """Extract body preview from message payload."""
+    def _get_body_preview(self, payload: dict, length: int = 150) -> str:
+        """Extract body preview from message payload (first 2 lines or 150 chars)."""
         body = ""
 
         if "body" in payload and payload["body"].get("data"):
@@ -167,9 +167,14 @@ class GmailClient:
                     body = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
                     break
 
-        # Clean up and truncate
-        body = " ".join(body.split())
-        return body[:length] + "..." if len(body) > length else body
+        # Get first 2 non-empty lines
+        lines = [line.strip() for line in body.split('\n') if line.strip()]
+        preview = ' '.join(lines[:2]) if lines else ""
+
+        # Truncate to length if needed
+        if len(preview) > length:
+            preview = preview[:length-3] + "..."
+        return preview
 
     def fetch_emails(self, folder: str = "INBOX", limit: int = 50, unread_only: bool = False) -> list[Email]:
         """Fetch emails from Gmail using the API."""
@@ -215,8 +220,10 @@ class GmailClient:
                     # Check if read
                     is_read = "UNREAD" not in msg.get("labelIds", [])
 
-                    # Get preview
-                    preview = msg.get("snippet", "")
+                    # Get preview from body (first 2 lines/150 chars)
+                    preview = self._get_body_preview(msg["payload"])
+                    if not preview:
+                        preview = msg.get("snippet", "")
 
                     # Use threadId as the UID, message id for URLs
                     thread_id = msg.get("threadId", msg_ref["id"])

@@ -171,8 +171,8 @@ class EmailClient:
                 decoded_parts.append(part)
         return "".join(decoded_parts)
 
-    def _get_email_preview(self, msg: email.message.Message, length: int = 100) -> str:
-        """Extract a text preview from the email body."""
+    def _get_email_preview(self, msg: email.message.Message, length: int = 150) -> str:
+        """Extract a text preview from the email body (first 2 lines or 150 chars)."""
         body = ""
         if msg.is_multipart():
             for part in msg.walk():
@@ -195,9 +195,14 @@ class EmailClient:
             except Exception:
                 body = ""
 
-        # Clean up and truncate
-        body = " ".join(body.split())
-        return body[:length] + "..." if len(body) > length else body
+        # Get first 2 non-empty lines
+        lines = [line.strip() for line in body.split('\n') if line.strip()]
+        preview = ' '.join(lines[:2]) if lines else ""
+
+        # Truncate to length if needed
+        if len(preview) > length:
+            preview = preview[:length-3] + "..."
+        return preview
 
     def fetch_emails(self, folder: str = "INBOX", limit: int = 50, unread_only: bool = False) -> list[Email]:
         """Fetch emails from the specified folder."""

@@ -66,37 +66,168 @@ class TriageEngine:
 
     def _build_default_rules(self):
         """Build default triage rules."""
-        # Urgent rules
-        urgent = TriageRule("urgent", Priority.URGENT)
-        urgent.conditions = [
-            self._make_subject_contains(["URGENT", "ASAP", "EMERGENCY", "ACTION REQUIRED"]),
-            self._make_from_contains(["ceo@", "cto@", "boss"]),
-        ]
-        self.rules.append(urgent)
-
-        # Important rules
-        important = TriageRule("important", Priority.IMPORTANT)
-        important.conditions = [
-            self._make_subject_contains(["invoice", "payment", "contract", "deadline"]),
-            self._make_from_contains(["client", "customer", "billing"]),
-        ]
-        self.rules.append(important)
-
-        # Newsletter rules
+        # Newsletter rules - check first to filter out bulk mail
         newsletter = TriageRule("newsletters", Priority.NEWSLETTER)
         newsletter.conditions = [
-            self._make_from_contains(["newsletter", "noreply@", "marketing@", "digest@"]),
-            self._make_subject_contains(["unsubscribe", "weekly digest", "monthly update"]),
+            self._make_from_contains([
+                "newsletter", "digest@", "weekly@", "marketing@",
+                "substack.com", "mailchimp.com", "campaign-", "bulk@",
+                "news@", "updates@", "announce@"
+            ]),
+            self._make_subject_contains([
+                "unsubscribe", "weekly digest", "monthly update", "newsletter",
+                "weekly roundup", "daily brief", "this week in"
+            ]),
+            self._is_promotional_email,
         ]
         self.rules.append(newsletter)
 
-        # Low priority rules
+        # Low priority rules - automated notifications, receipts
         low = TriageRule("low_priority", Priority.LOW)
         low.conditions = [
-            self._make_from_contains(["notifications@", "alerts@", "no-reply@", "mailer-daemon"]),
-            self._make_subject_contains(["automated", "notification", "auto-reply"]),
+            self._make_from_contains([
+                "notifications@", "alerts@", "no-reply@", "noreply@",
+                "mailer-daemon", "postmaster@", "donotreply@",
+                "notify@", "notification@", "automated@", "system@",
+                "orders@", "receipts@", "confirmation@", "shipping@",
+                "support@", "helpdesk@", "ticket@"
+            ]),
+            self._make_subject_contains([
+                "automated", "notification", "auto-reply", "out of office",
+                "receipt", "order confirmation", "shipping confirmation",
+                "password reset", "verify your", "confirm your",
+                "your order", "has shipped", "tracking number",
+                "successfully", "has been processed"
+            ]),
+            self._is_automated_email,
         ]
         self.rules.append(low)
+
+        # Urgent rules - action required, time-sensitive
+        urgent = TriageRule("urgent", Priority.URGENT)
+        urgent.conditions = [
+            self._make_subject_contains([
+                "urgent", "asap", "emergency", "action required",
+                "immediate", "time sensitive", "deadline today",
+                "expires today", "final notice", "last chance",
+                "respond by", "due today", "overdue"
+            ]),
+            self._make_from_contains([
+                # Add boss/co-founder emails via config, these are examples
+                "ceo@", "cto@", "founder@", "cofounder@"
+            ]),
+        ]
+        self.rules.append(urgent)
+
+        # Important rules - contracts, overdue invoices, direct human messages
+        important = TriageRule("important", Priority.IMPORTANT)
+        important.conditions = [
+            self._make_subject_contains([
+                "contract", "agreement", "signature required",
+                "invoice overdue", "past due", "payment overdue",
+                "legal", "confidential", "proposal", "offer letter"
+            ]),
+            self._is_direct_human_message,
+        ]
+        self.rules.append(important)
+
+    def _is_automated_email(self, email: Email) -> bool:
+        """Detect automated/system emails."""
+        sender_lower = email.sender.lower()
+        subject_lower = email.subject.lower()
+
+        # Check for common automated sender patterns
+        automated_patterns = [
+            "via ", "on behalf of", "@github.com", "@gitlab.com",
+            "@jira.", "@atlassian.", "@slack.com", "@trello.com",
+            "@asana.com", "@monday.com", "@notion.so",
+            "@stripe.com", "@paypal.com", "@square.com",
+            "@calendly.com", "@zoom.us", "@dropbox.com",
+            "@google.com", "@docs.google.com"
+        ]
+        if any(p in sender_lower for p in automated_patterns):
+            return True
+
+        # Check for automated subject patterns
+        auto_subjects = [
+            "invited you to", "shared with you", "commented on",
+            "mentioned you", "assigned to you", "new comment",
+            "reminder:", "re: reminder", "calendar:", "event:"
+        ]
+        if any(p in subject_lower for p in auto_subjects):
+            return True
+
+        return False
+    _is_automated_email.__doc__ = "Automated/system email detected"
+
+    def _is_promotional_email(self, email: Email) -> bool:
+        """Detect promotional/marketing emails."""
+        sender_lower = email.sender.lower()
+        subject_lower = email.subject.lower()
+
+        promo_sender_patterns = [
+            "promo@", "deals@", "offers@", "sales@",
+            "shop@", "store@", "info@", "hello@"
+        ]
+        promo_subject_patterns = [
+            "% off", "sale", "discount", "deal", "offer",
+            "limited time", "exclusive", "free shipping",
+            "don't miss", "last day", "flash sale", "clearance",
+            "save $", "save up to", "coupon", "promo code"
+        ]
+
+        if any(p in sender_lower for p in promo_sender_patterns):
+            if any(p in subject_lower for p in promo_subject_patterns):
+                return True
+
+        return False
+    _is_promotional_email.__doc__ = "Promotional/marketing email detected"
+
+    def _is_direct_human_message(self, email: Email) -> bool:
+        """Detect direct messages from real humans (not automated)."""
+        sender_lower = email.sender.lower()
+        subject_lower = email.subject.lower()
+
+        # Exclude known automated senders
+        automated_domains = [
+            "@github.com", "@gitlab.com", "@jira.", "@slack.com",
+            "@trello.com", "@asana.com", "@notion.so", "@calendly.com",
+            "@zoom.us", "@stripe.com", "@paypal.com", "@shopify.com",
+            "@mailchimp.com", "@substack.com", "@medium.com",
+            "noreply@", "no-reply@", "donotreply@", "notifications@",
+            "alerts@", "mailer-daemon", "postmaster@"
+        ]
+        if any(p in sender_lower for p in automated_domains):
+            return False
+
+        # Exclude promotional patterns
+        if self._is_promotional_email(email):
+            return False
+
+        # Exclude newsletter patterns
+        newsletter_patterns = ["newsletter", "digest", "weekly", "unsubscribe"]
+        if any(p in subject_lower for p in newsletter_patterns):
+            return False
+
+        # Check for personal email indicators
+        personal_indicators = [
+            "hi ", "hey ", "hello ", "dear ", "thanks", "thank you",
+            "quick question", "following up", "checking in",
+            "wanted to", "can you", "could you", "would you",
+            "let me know", "get back to", "your thoughts"
+        ]
+        preview_lower = (email.preview or "").lower()
+
+        # If preview suggests personal communication
+        if any(p in preview_lower[:100] for p in personal_indicators):
+            return True
+
+        # If it's a reply or forward (implies conversation)
+        if subject_lower.startswith("re:") or subject_lower.startswith("fwd:"):
+            return True
+
+        return False
+    _is_direct_human_message.__doc__ = "Direct message from real person"
 
     def _make_from_contains(self, patterns: list[str]) -> Callable[[Email], bool]:
         """Create a condition that checks if sender contains any pattern."""

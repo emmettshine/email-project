@@ -62,7 +62,9 @@ class SlackClient:
             response = self.client.chat_postMessage(
                 channel=channel,
                 blocks=blocks,
-                text=f"Email Digest: {actionable_count} emails need attention"
+                text=f"Email Digest: {actionable_count} emails need attention",
+                unfurl_links=False,
+                unfurl_media=False
             )
             return {"success": True, "ts": response["ts"], "channel": response["channel"]}
         except SlackApiError as e:
@@ -84,6 +86,21 @@ class SlackClient:
 
         # Fallback to the original
         return sender.split('<')[0].strip().strip('"')
+
+    def _extract_sender_domain(self, sender: str) -> str:
+        """Extract the domain from a sender email address."""
+        # Try to find email in angle brackets
+        match = re.search(r'<([^>]+)>', sender)
+        if match:
+            email = match.group(1)
+        else:
+            # Assume the whole string is an email
+            email = sender.strip()
+
+        # Extract domain
+        if '@' in email:
+            return email.split('@')[1].lower()
+        return ""
 
     def _generate_summary(self, preview: str) -> str:
         """Generate a 1-sentence summary from the email preview."""
@@ -190,12 +207,18 @@ class SlackClient:
                     priority_label = priority_labels.get(priority, "📧")
 
                     sender_name = self._extract_sender_name(email.sender)
+                    sender_domain = self._extract_sender_domain(email.sender)
                     subject = email.subject
                     summary_text = self._generate_summary(email.preview)
                     gmail_link = self._generate_gmail_link(email)
 
                     # Build the email block with clear formatting
-                    email_text = f"*{priority_label}*\n"
+                    # Show account name with sender domain for context
+                    account_label = f"{account_name}"
+                    if sender_domain:
+                        account_label += f" ({sender_domain})"
+
+                    email_text = f"*{priority_label}* · {account_label}\n"
                     email_text += f"*From:* {sender_name}\n"
                     email_text += f"*Subject:* {subject}\n"
                     email_text += f"_{summary_text}_\n"

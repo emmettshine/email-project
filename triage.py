@@ -79,7 +79,10 @@ class TriageEngine:
                 "news@", "updates@", "announce@", "promo@", "deals@",
                 "offers@", "sales@", "shop@", "store@", "rewards@",
                 "fandango", "uber.com", "lyft.com", "doordash",
-                "grubhub", "postmates", "instacart"
+                "grubhub", "postmates", "instacart",
+                # Newsletter platforms and creators
+                "workweek.com", "morningbrew.com", "thehustle.co",
+                "beehiiv.com", "convertkit.com", "buttondown.email"
             ]),
             self._make_subject_contains([
                 "unsubscribe", "weekly digest", "monthly update", "newsletter",

@@ -131,11 +131,13 @@ class SlackClient:
         return truncated + '...'
 
     def _generate_gmail_link(self, email) -> str:
-        """Generate a Gmail link for the email using the message ID."""
+        """Generate a Gmail link for the email using the thread ID."""
         # Gmail web URL format: https://mail.google.com/mail/u/0/#inbox/MESSAGE_ID
-        # The email.uid should contain the Gmail message ID
-        message_id = email.uid
-        return f"https://mail.google.com/mail/u/0/#inbox/{message_id}"
+        # The email.uid contains the Gmail thread ID
+        thread_id = email.uid
+        # Debug: print the thread ID being used
+        print(f"DEBUG: Generating Gmail link for '{email.subject[:30]}...' with thread_id='{thread_id}'")
+        return f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
 
     def _build_digest_blocks(
         self,

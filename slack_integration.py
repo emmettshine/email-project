@@ -3,6 +3,7 @@ Slack integration for posting email digests.
 """
 
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -25,8 +26,6 @@ class SlackClient:
         """
         self.token = config.get("bot_token") or os.environ.get("SLACK_BOT_TOKEN")
         self.default_channel = config.get("channel", "#email-digests")
-        self.include_preview = config.get("include_preview", False)
-        self.max_emails_per_priority = config.get("max_emails_per_priority", 5)
 
         if not self.token:
             raise ValueError(
@@ -56,15 +55,70 @@ class SlackClient:
         channel = channel or self.default_channel
         blocks = self._build_digest_blocks(results, summary)
 
+        # Count actionable emails for the fallback text
+        actionable_count = len(results.get(Priority.URGENT, [])) + len(results.get(Priority.IMPORTANT, []))
+
         try:
             response = self.client.chat_postMessage(
                 channel=channel,
                 blocks=blocks,
-                text=f"Email Digest: {summary['total']} emails ({summary['unread']} unread)"
+                text=f"Email Digest: {actionable_count} emails need attention"
             )
             return {"success": True, "ts": response["ts"], "channel": response["channel"]}
         except SlackApiError as e:
             return {"success": False, "error": str(e.response["error"])}
+
+    def _extract_sender_name(self, sender: str) -> str:
+        """Extract just the name from a sender string like 'John Doe <john@example.com>'."""
+        # Try to match "Name <email>" pattern
+        match = re.match(r'^"?([^"<]+)"?\s*<', sender)
+        if match:
+            return match.group(1).strip()
+
+        # Try to match just an email and extract the name part
+        match = re.match(r'^([^@]+)@', sender)
+        if match:
+            # Convert "john.doe" to "John Doe"
+            name = match.group(1).replace('.', ' ').replace('_', ' ')
+            return name.title()
+
+        # Fallback to the original
+        return sender.split('<')[0].strip().strip('"')
+
+    def _generate_summary(self, preview: str) -> str:
+        """Generate a 1-sentence summary from the email preview."""
+        if not preview:
+            return "No preview available."
+
+        # Clean up the preview text
+        preview = preview.strip()
+
+        # If preview is already short, use it as-is
+        if len(preview) <= 150:
+            # Make sure it ends with proper punctuation
+            if preview and preview[-1] not in '.!?':
+                preview += '.'
+            return preview
+
+        # Find the first sentence
+        sentence_end = re.search(r'[.!?](?:\s|$)', preview)
+        if sentence_end and sentence_end.end() <= 200:
+            return preview[:sentence_end.end()].strip()
+
+        # Truncate at a word boundary
+        truncated = preview[:147]
+        last_space = truncated.rfind(' ')
+        if last_space > 100:
+            truncated = truncated[:last_space]
+        return truncated + '...'
+
+    def _generate_gmail_link(self, email) -> str:
+        """Generate a Gmail link for the email."""
+        # Gmail web URL format for opening a specific message
+        # The UID from IMAP can be used with rfc822msgid search
+        # For simplicity, we'll link to inbox search by subject
+        subject_encoded = email.subject.replace(' ', '+')
+        return f"https://mail.google.com/mail/u/0/#search/{subject_encoded}"
 
     def _build_digest_blocks(
         self,
@@ -74,7 +128,8 @@ class SlackClient:
         """Build Slack Block Kit blocks for the digest."""
         blocks = []
 
-        # Header
+        # Header - simple, no counts
+        timestamp = datetime.now().strftime("%A, %B %d at %I:%M %p")
         blocks.append({
             "type": "header",
             "text": {
@@ -83,84 +138,79 @@ class SlackClient:
                 "emoji": True
             }
         })
-
-        # Summary section
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        summary_text = (
-            f"*Total:* {summary['total']} emails | "
-            f"*Unread:* {summary['unread']} | "
-            f"*Generated:* {timestamp}"
-        )
         blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": summary_text}
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"_{timestamp}_"}]
         })
-
-        # Account breakdown
-        if summary.get("by_account"):
-            account_text = " | ".join(
-                f"{account}: {count}"
-                for account, count in summary["by_account"].items()
-            )
-            blocks.append({
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"📬 {account_text}"}]
-            })
 
         blocks.append({"type": "divider"})
 
-        # Priority sections
-        priority_emoji = {
-            Priority.URGENT: "🔴",
-            Priority.IMPORTANT: "🟡",
-            Priority.NORMAL: "⚪",
-            Priority.LOW: "🔵",
-            Priority.NEWSLETTER: "📰"
-        }
+        # Group emails by account, filtered to only URGENT and IMPORTANT
+        actionable_priorities = [Priority.URGENT, Priority.IMPORTANT]
+        emails_by_account: dict[str, list[tuple[Priority, TriageResult]]] = {}
 
-        for priority in Priority:
-            emails = results.get(priority, [])
-            if not emails:
-                continue
+        for priority in actionable_priorities:
+            for result in results.get(priority, []):
+                account = result.email.account_name
+                if account not in emails_by_account:
+                    emails_by_account[account] = []
+                emails_by_account[account].append((priority, result))
 
-            emoji = priority_emoji.get(priority, "📧")
+        if not emails_by_account:
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{emoji} *{priority.name}* ({len(emails)} emails)"
+                    "text": ":white_check_mark: *No urgent or important emails right now!*"
                 }
             })
+        else:
+            # Priority emoji
+            priority_emoji = {
+                Priority.URGENT: ":red_circle:",
+                Priority.IMPORTANT: ":large_yellow_circle:",
+            }
 
-            # List emails (limited)
-            display_emails = emails[:self.max_emails_per_priority]
-            email_lines = []
+            # Process each account
+            for account_name, account_emails in emails_by_account.items():
+                # Account header
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":file_folder: *{account_name}*"
+                    }
+                })
 
-            for result in display_emails:
-                email = result.email
-                read_marker = "" if email.is_read else "• "
-                sender = self._truncate(email.sender, 30)
-                subject = self._truncate(email.subject, 50)
-                line = f"{read_marker}*{sender}*: {subject}"
+                # Sort by priority (URGENT first)
+                account_emails.sort(key=lambda x: x[0].value)
 
-                if self.include_preview and email.preview:
-                    preview = self._truncate(email.preview, 100)
-                    line += f"\n   _{preview}_"
+                # Each email in this account
+                for priority, result in account_emails:
+                    email = result.email
+                    emoji = priority_emoji.get(priority, ":email:")
 
-                email_lines.append(line)
+                    sender_name = self._extract_sender_name(email.sender)
+                    subject = email.subject
+                    summary_text = self._generate_summary(email.preview)
+                    gmail_link = self._generate_gmail_link(email)
 
-            if len(emails) > self.max_emails_per_priority:
-                email_lines.append(
-                    f"_...and {len(emails) - self.max_emails_per_priority} more_"
-                )
+                    # Build the email block
+                    email_text = (
+                        f"{emoji} *{sender_name}*\n"
+                        f"*{subject}*\n"
+                        f"_{summary_text}_\n"
+                        f"<{gmail_link}|Open in Gmail>"
+                    )
 
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "\n".join(email_lines)}
-            })
+                    blocks.append({
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": email_text}
+                    })
+
+                blocks.append({"type": "divider"})
 
         # Footer
-        blocks.append({"type": "divider"})
         blocks.append({
             "type": "context",
             "elements": [{
@@ -170,12 +220,6 @@ class SlackClient:
         })
 
         return blocks
-
-    def _truncate(self, text: str, max_length: int) -> str:
-        """Truncate text to max length with ellipsis."""
-        if len(text) <= max_length:
-            return text
-        return text[:max_length - 3] + "..."
 
     def test_connection(self) -> dict:
         """Test the Slack connection by calling auth.test."""

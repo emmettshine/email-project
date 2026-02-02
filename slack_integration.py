@@ -113,12 +113,11 @@ class SlackClient:
         return truncated + '...'
 
     def _generate_gmail_link(self, email) -> str:
-        """Generate a Gmail link for the email."""
-        # Gmail web URL format for opening a specific message
-        # The UID from IMAP can be used with rfc822msgid search
-        # For simplicity, we'll link to inbox search by subject
-        subject_encoded = email.subject.replace(' ', '+')
-        return f"https://mail.google.com/mail/u/0/#search/{subject_encoded}"
+        """Generate a Gmail link for the email using the message ID."""
+        # Gmail web URL format: https://mail.google.com/mail/u/0/#inbox/MESSAGE_ID
+        # The email.uid should contain the Gmail message ID
+        message_id = email.uid
+        return f"https://mail.google.com/mail/u/0/#inbox/{message_id}"
 
     def _build_digest_blocks(
         self,
@@ -128,13 +127,13 @@ class SlackClient:
         """Build Slack Block Kit blocks for the digest."""
         blocks = []
 
-        # Header - simple, no counts
+        # Header
         timestamp = datetime.now().strftime("%A, %B %d at %I:%M %p")
         blocks.append({
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": ":envelope: Email Digest",
+                "text": "📧 Email Digest",
                 "emoji": True
             }
         })
@@ -161,53 +160,59 @@ class SlackClient:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": ":white_check_mark: *No urgent or important emails right now!*"
+                    "text": "✅ *No urgent or important emails right now!*"
                 }
             })
         else:
-            # Priority emoji
-            priority_emoji = {
-                Priority.URGENT: ":red_circle:",
-                Priority.IMPORTANT: ":large_yellow_circle:",
+            # Priority labels
+            priority_labels = {
+                Priority.URGENT: "🔴 URGENT",
+                Priority.IMPORTANT: "🟡 IMPORTANT",
             }
 
             # Process each account
             for account_name, account_emails in emails_by_account.items():
-                # Account header
+                # Account header section
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f":file_folder: *{account_name}*"
+                        "text": f"📁 *{account_name}*"
                     }
                 })
 
                 # Sort by priority (URGENT first)
                 account_emails.sort(key=lambda x: x[0].value)
 
-                # Each email in this account
+                # Each email in this account - as separate blocks for clear separation
                 for priority, result in account_emails:
                     email = result.email
-                    emoji = priority_emoji.get(priority, ":email:")
+                    priority_label = priority_labels.get(priority, "📧")
 
                     sender_name = self._extract_sender_name(email.sender)
                     subject = email.subject
                     summary_text = self._generate_summary(email.preview)
                     gmail_link = self._generate_gmail_link(email)
 
-                    # Build the email block
-                    email_text = (
-                        f"{emoji} *{sender_name}*\n"
-                        f"*{subject}*\n"
-                        f"_{summary_text}_\n"
-                        f"<{gmail_link}|Open in Gmail>"
-                    )
+                    # Build the email block with clear formatting
+                    email_text = f"*{priority_label}*\n"
+                    email_text += f"*From:* {sender_name}\n"
+                    email_text += f"*Subject:* {subject}\n"
+                    email_text += f"_{summary_text}_\n"
+                    email_text += f"<{gmail_link}|📬 Open in Gmail>"
 
                     blocks.append({
                         "type": "section",
                         "text": {"type": "mrkdwn", "text": email_text}
                     })
 
+                    # Add spacing between emails
+                    blocks.append({
+                        "type": "context",
+                        "elements": [{"type": "mrkdwn", "text": " "}]
+                    })
+
+                # Divider after each account section
                 blocks.append({"type": "divider"})
 
         # Footer

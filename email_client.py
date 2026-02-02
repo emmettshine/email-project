@@ -220,16 +220,29 @@ class EmailClient:
 
             for num in nums:
                 try:
-                    _, msg_data = self.connection.fetch(num, "(RFC822 FLAGS)")
+                    # Fetch email data including Gmail message ID if available
+                    # X-GM-MSGID is Gmail's unique message identifier
+                    _, msg_data = self.connection.fetch(num, "(RFC822 FLAGS X-GM-MSGID)")
                     if not msg_data or not msg_data[0]:
                         continue
 
                     raw_email = msg_data[0][1]
                     msg = email.message_from_bytes(raw_email)
 
-                    # Check if read
+                    # Check if read and extract Gmail message ID
                     flags_data = msg_data[0][0].decode() if isinstance(msg_data[0][0], bytes) else str(msg_data[0][0])
                     is_read = "\\Seen" in flags_data
+
+                    # Extract Gmail message ID (X-GM-MSGID) for proper Gmail links
+                    gmail_msg_id = None
+                    import re as re_module
+                    msgid_match = re_module.search(r'X-GM-MSGID\s+(\d+)', flags_data)
+                    if msgid_match:
+                        # Convert to hex for Gmail URL format
+                        gmail_msg_id = format(int(msgid_match.group(1)), 'x')
+
+                    # Use Gmail message ID if available, otherwise fall back to sequence number
+                    message_uid = gmail_msg_id if gmail_msg_id else (num.decode() if isinstance(num, bytes) else str(num))
 
                     # Parse date
                     date_str = msg.get("Date", "")
@@ -248,7 +261,7 @@ class EmailClient:
                     preview = self._get_email_preview(msg)
 
                     emails.append(Email(
-                        uid=num.decode() if isinstance(num, bytes) else str(num),
+                        uid=message_uid,
                         account_name=self.name,
                         sender=sender,
                         subject=subject,

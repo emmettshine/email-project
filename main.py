@@ -4,6 +4,7 @@ Email Triage System - CLI interface for managing multiple email accounts.
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from gmail_oauth import (
     OAUTH_CREDENTIALS_FILE,
     CREDENTIALS_DIR,
 )
+from slack_integration import SlackClient
 
 
 console = Console()
@@ -339,6 +341,70 @@ def cmd_auth(args, config: dict):
     console.print("\n[bold green]Authentication setup complete![/bold green]")
 
 
+def cmd_digest(args, config: dict):
+    """Send email digest to Slack."""
+    console.print("\n[bold blue]Sending Email Digest to Slack[/bold blue]\n")
+
+    # Check Slack configuration
+    slack_config = config.get("slack", {})
+    if not slack_config.get("bot_token") and not os.environ.get("SLACK_BOT_TOKEN"):
+        console.print("[red]Error: Slack bot token not configured.[/red]")
+        console.print("Set 'bot_token' in config.yaml or SLACK_BOT_TOKEN environment variable.")
+        return
+
+    # Initialize Slack client
+    try:
+        slack = SlackClient(slack_config)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
+
+    # Test connection if requested
+    if args.test:
+        console.print("Testing Slack connection... ", end="")
+        result = slack.test_connection()
+        if result["success"]:
+            console.print(f"[green]OK[/green]")
+            console.print(f"  Team: {result['team']}")
+            console.print(f"  Bot user: {result['user']}")
+        else:
+            console.print(f"[red]FAILED[/red]")
+            console.print(f"  Error: {result['error']}")
+        return
+
+    # Fetch emails
+    emails = fetch_all_emails(config, unread_only=args.unread)
+
+    if not emails:
+        console.print("[yellow]No emails found to send.[/yellow]")
+        return
+
+    # Run triage
+    engine = TriageEngine()
+    if "triage_rules" in config:
+        engine.load_rules_from_config(config["triage_rules"])
+
+    results = engine.triage_batch(emails)
+    summary = engine.get_summary(results)
+
+    # Determine channel
+    channel = args.channel or slack_config.get("channel", "#email-digests")
+
+    # Post to Slack
+    console.print(f"Posting digest to {channel}... ", end="")
+    response = slack.post_digest(results, summary, channel=channel)
+
+    if response["success"]:
+        console.print("[green]OK[/green]")
+        console.print(f"\n[bold]Digest posted successfully![/bold]")
+        console.print(f"  Total emails: {summary['total']}")
+        console.print(f"  Unread: {summary['unread']}")
+        console.print(f"  Channel: {channel}")
+    else:
+        console.print("[red]FAILED[/red]")
+        console.print(f"  Error: {response['error']}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Email Triage System - Manage multiple email accounts efficiently"
@@ -371,6 +437,12 @@ def main():
     auth_parser.add_argument("--account", "-a", type=str, help="Authenticate specific account by name")
     auth_parser.add_argument("--logout", action="store_true", help="Remove stored credentials for all accounts")
 
+    # Digest command (Slack integration)
+    digest_parser = subparsers.add_parser("digest", help="Send email digest to Slack")
+    digest_parser.add_argument("--unread", "-u", action="store_true", help="Only include unread emails")
+    digest_parser.add_argument("--channel", "-ch", help="Slack channel to post to (overrides config)")
+    digest_parser.add_argument("--test", "-t", action="store_true", help="Test Slack connection only")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -385,6 +457,7 @@ def main():
         "accounts": cmd_accounts,
         "test": cmd_test,
         "auth": cmd_auth,
+        "digest": cmd_digest,
     }
 
     if args.command in commands:

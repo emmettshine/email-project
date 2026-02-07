@@ -103,6 +103,16 @@ class SlackClient:
             return email.split('@')[1].lower()
         return ""
 
+    def _escape_slack_text(self, text: str) -> str:
+        """Escape special characters for Slack mrkdwn format."""
+        if not text:
+            return text
+        # Escape & < > which have special meaning in Slack
+        text = text.replace('&', '&amp;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        return text
+
     def _generate_summary(self, preview: str) -> str:
         """Generate a 1-sentence summary from the email preview."""
         if not preview:
@@ -141,12 +151,18 @@ class SlackClient:
         # URL encode the subject - replace spaces with +
         subject = email.subject.replace(' ', '+')
         # Quote special characters but keep + for spaces
+        # Explicitly encode <, >, | which break Slack link format
         encoded_subject = quote(subject, safe='+')
 
-        # Get the message ID
+        # Get the message ID (sanitize to alphanumeric only for safety)
         message_id = getattr(email, 'message_id', '') or email.uid
+        message_id = ''.join(c for c in str(message_id) if c.isalnum())
 
-        return f"https://mail.google.com/mail/u/{account_index}/#search/subject:{encoded_subject}/{message_id}"
+        url = f"https://mail.google.com/mail/u/{account_index}/#search/subject:{encoded_subject}/{message_id}"
+
+        # Final safety check: remove any chars that could break Slack link format
+        url = url.replace('<', '%3C').replace('>', '%3E').replace('|', '%7C')
+        return url
 
     def _build_digest_blocks(
         self,
@@ -202,11 +218,12 @@ class SlackClient:
             # Process each account
             for account_name, account_emails in emails_by_account.items():
                 # Account header section
+                escaped_account_name = self._escape_slack_text(account_name)
                 blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"📁 *{account_name}*"
+                        "text": f"📁 *{escaped_account_name}*"
                     }
                 })
 
@@ -220,16 +237,17 @@ class SlackClient:
 
                     sender_name = self._extract_sender_name(email.sender)
                     sender_domain = self._extract_sender_domain(email.sender)
-                    # Decode HTML entities (e.g., &#39; -> ', &amp; -> &)
-                    subject = html.unescape(email.subject)
-                    summary_text = html.unescape(self._generate_summary(email.preview))
+                    # Decode HTML entities then escape for Slack
+                    subject = self._escape_slack_text(html.unescape(email.subject))
+                    summary_text = self._escape_slack_text(html.unescape(self._generate_summary(email.preview)))
+                    sender_name = self._escape_slack_text(sender_name)
                     gmail_link = self._generate_gmail_link(email)
 
                     # Build the email block with clear formatting
                     # Show account name with sender domain for context
-                    account_label = f"{account_name}"
+                    account_label = self._escape_slack_text(account_name)
                     if sender_domain:
-                        account_label += f" ({sender_domain})"
+                        account_label += f" ({self._escape_slack_text(sender_domain)})"
 
                     email_text = f"*{priority_label}* · {account_label}\n"
                     email_text += f"*From:* {sender_name}\n"
@@ -240,12 +258,6 @@ class SlackClient:
                     blocks.append({
                         "type": "section",
                         "text": {"type": "mrkdwn", "text": email_text}
-                    })
-
-                    # Add spacing between emails
-                    blocks.append({
-                        "type": "context",
-                        "elements": [{"type": "mrkdwn", "text": " "}]
                     })
 
                 # Divider after each account section
